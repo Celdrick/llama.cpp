@@ -92,7 +92,7 @@ RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
 COPY --from=collector /llama.cpp/bin /app
 COPY --from=collector /llama.cpp/gguf-py /app/gguf-py
 
-RUN pip install --no-cache-dir --break-system-packages \
+RUN pip install --no-cache-dir \
         -r /app/gguf-py/requirements.txt
 
 ENTRYPOINT [ "/app/tools.sh" ]
