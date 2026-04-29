@@ -67,22 +67,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Keep all build targets in one place and derive merge targets from it.
           cat > build-matrix.json <<'JSON'
           [
             { "tag": "cpu", "dockerfile": ".devops/cpu.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04" },
-            { "tag": "cpu", "dockerfile": ".devops/cpu.Dockerfile", "platforms": "linux/arm64", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04-arm" },
-            { "tag": "cpu", "dockerfile": ".devops/s390x.Dockerfile", "platforms": "linux/s390x", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04-s390x" },
-            { "tag": "cuda cuda12", "dockerfile": ".devops/cuda.Dockerfile", "cuda_version": "12.8.1", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" },
-            { "tag": "cuda cuda12", "dockerfile": ".devops/cuda.Dockerfile", "cuda_version": "12.8.1", "platforms": "linux/arm64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04-arm" },
-            { "tag": "cuda13", "dockerfile": ".devops/cuda.Dockerfile", "cuda_version": "13.1.1", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" },
-            { "tag": "cuda13", "dockerfile": ".devops/cuda.Dockerfile", "cuda_version": "13.1.1", "platforms": "linux/arm64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04-arm" },
-            { "tag": "musa", "dockerfile": ".devops/musa.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" },
-            { "tag": "intel", "dockerfile": ".devops/intel.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" },
-            { "tag": "vulkan", "dockerfile": ".devops/vulkan.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04" },
-            { "tag": "vulkan", "dockerfile": ".devops/vulkan.Dockerfile", "platforms": "linux/arm64", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04-arm" },
-            { "tag": "rocm", "dockerfile": ".devops/rocm.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" },
-            { "tag": "openvino", "dockerfile": ".devops/openvino.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04" }
+            { "tag": "cuda13", "dockerfile": ".devops/cuda.Dockerfile", "cuda_version": "13.1.1", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" }
           ]
           JSON
 
@@ -101,20 +89,6 @@ jobs:
               | .server = (.server or ($entry.server // false))
               | .arches += [($entry.platforms | sub("^linux/"; ""))]
             ))
-            # Backward compatibility: s390x tags are aliases of cpu for the linux/s390x platform.
-            | if (has("cpu") and (((.cpu.arches // []) | index("s390x")) != null)) then
-                . + {
-                  s390x: {
-                    tag: "s390x",
-                    arches: ["s390x"],
-                    full: .cpu.full,
-                    light: .cpu.light,
-                    server: .cpu.server
-                  }
-                }
-              else
-                .
-              end
             | [.[] | .arches = (.arches | unique | sort | join(" "))]
           ' build-matrix.json)"
 
@@ -146,12 +120,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
-      - name: Log in to Docker Registry
+      - name: Log in to Aliyun Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ secrets.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USER }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Determine image metadata
         id: meta
@@ -159,10 +139,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          REPO_OWNER="${GITHUB_REPOSITORY_OWNER@L}"  # to lower case
-          REPO_NAME="${{ github.event.repository.name }}"
-          IMAGE_REPO="ghcr.io/${REPO_OWNER}/${REPO_NAME}"
-          PREFIX="${IMAGE_REPO}:"
+          ALIYUN_NS="${{ secrets.ALIYUN_NAME_SPACE }}"
+          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}:"
+          DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp:"
           PLATFORM="${{ matrix.config.platforms }}"
           ARCH_SUFFIX="${PLATFORM#linux/}"
 
@@ -174,29 +154,24 @@ jobs:
               else
                   TYPE="-$tag"
               fi
-              CACHETAG="${PREFIX}buildcache${TYPE}-${ARCH_SUFFIX}"
+              ALIYUN_CACHE="${ALIYUN_PREFIX}buildcache${TYPE}-${ARCH_SUFFIX}"
+              DOCKERHUB_CACHE="${DOCKERHUB_PREFIX}buildcache${TYPE}-${ARCH_SUFFIX}"
           done
 
           SAFE_TAGS="$(echo "$tags" | tr ' ' '_')"
 
-          echo "image_repo=$IMAGE_REPO" >> $GITHUB_OUTPUT
+          echo "aliyun_prefix=$ALIYUN_PREFIX" >> $GITHUB_OUTPUT
+          echo "dockerhub_prefix=$DOCKERHUB_PREFIX" >> $GITHUB_OUTPUT
           echo "arch_suffix=$ARCH_SUFFIX" >> $GITHUB_OUTPUT
-          echo "cache_output_tag=$CACHETAG" >> $GITHUB_OUTPUT
+          echo "aliyun_cache_output_tag=$ALIYUN_CACHE" >> $GITHUB_OUTPUT
+          echo "dockerhub_cache_output_tag=$DOCKERHUB_CACHE" >> $GITHUB_OUTPUT
           echo "digest_artifact_suffix=${SAFE_TAGS}-${ARCH_SUFFIX}" >> $GITHUB_OUTPUT
-          echo "cache_output_tag=$CACHETAG"  # print out for debugging
-        env:
-          GITHUB_REPOSITORY_OWNER: '${{ github.repository_owner }}'
 
       - name: Free Disk Space (Ubuntu)
         if: ${{ matrix.config.free_disk_space == true }}
         uses: ggml-org/free-disk-space@v1.3.1
         with:
-          # this might remove tools that are actually needed,
-          # if set to "true" but frees about 6 GB
           tool-cache: false
-
-          # all of these default to true, but feel free to set to
-          # "false" if necessary for your workflow
           android: true
           dotnet: true
           haskell: true
@@ -211,22 +186,15 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.config.platforms }}
-          outputs: type=image,name=${{ steps.meta.outputs.image_repo }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.meta.outputs.aliyun_prefix }},push-by-digest=true,name-canonical=true,push=true
           file: ${{ matrix.config.dockerfile }}
           target: full
           provenance: false
           build-args: |
             ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
             ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
-          # using github experimental cache
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
-          # return to this if the experimental github cache is having issues
-          #cache-to: type=local,dest=/tmp/.buildx-cache
-          #cache-from: type=local,src=/tmp/.buildx-cache
-          # using registry cache (no storage limit)
-          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_output_tag }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_output_tag }},mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }},mode=max
 
       - name: Build and push Light Docker image by digest
         id: build_light
@@ -235,22 +203,15 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.config.platforms }}
-          outputs: type=image,name=${{ steps.meta.outputs.image_repo }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.meta.outputs.aliyun_prefix }},push-by-digest=true,name-canonical=true,push=true
           file: ${{ matrix.config.dockerfile }}
           target: light
           provenance: false
           build-args: |
             ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
             ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
-          # using github experimental cache
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
-          # return to this if the experimental github cache is having issues
-          #cache-to: type=local,dest=/tmp/.buildx-cache
-          #cache-from: type=local,src=/tmp/.buildx-cache
-          # using registry cache (no storage limit)
-          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_output_tag }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_output_tag }},mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }},mode=max
 
       - name: Build and push Server Docker image by digest
         id: build_server
@@ -259,22 +220,15 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.config.platforms }}
-          outputs: type=image,name=${{ steps.meta.outputs.image_repo }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.meta.outputs.aliyun_prefix }},push-by-digest=true,name-canonical=true,push=true
           file: ${{ matrix.config.dockerfile }}
           target: server
           provenance: false
           build-args: |
             ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
             ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
-          # using github experimental cache
-          #cache-from: type=gha
-          #cache-to: type=gha,mode=max
-          # return to this if the experimental github cache is having issues
-          #cache-to: type=local,dest=/tmp/.buildx-cache
-          #cache-from: type=local,src=/tmp/.buildx-cache
-          # using registry cache (no storage limit)
-          cache-from: type=registry,ref=${{ steps.meta.outputs.cache_output_tag }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.cache_output_tag }},mode=max
+          cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
+          cache-to: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }},mode=max
 
       - name: Export digest metadata
         shell: bash
@@ -313,7 +267,7 @@ jobs:
             fi
 
       - name: Upload digest metadata
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@bbbca2ddaa5d172054b4087a40e8e0b5a5461e7c # v7
         with:
           name: digests-${{ steps.meta.outputs.digest_artifact_suffix }}
           path: /tmp/digests/${{ steps.meta.outputs.digest_artifact_suffix }}.tsv
@@ -344,22 +298,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
 
-      - name: Log in to Docker Registry
+      - name: Log in to Aliyun Registry
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
         with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ secrets.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USER }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Create tags from digests
         shell: bash
         run: |
           set -euo pipefail
 
-          REPO_OWNER="${GITHUB_REPOSITORY_OWNER@L}"  # to lower case
-          REPO_NAME="${{ github.event.repository.name }}"
-          IMAGE_REPO="ghcr.io/${REPO_OWNER}/${REPO_NAME}"
-          PREFIX="${IMAGE_REPO}:"
+          ALIYUN_NS="${{ secrets.ALIYUN_NAME_SPACE }}"
+          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}:"
+          DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp:"
           SRC_TAG="${{ needs.create_tag.outputs.source_tag }}"
           TAGS="${{ matrix.config.tag }}"
           ARCHES="${{ matrix.config.arches }}"
@@ -383,11 +343,6 @@ jobs:
 
               digest="$(awk -F '\t' -v t="$tag_name" -v a="$arch" -v i="$image_type" '$1 == t && $2 == a && $3 == i { print $4; exit }' ${DIGEST_GLOB})"
 
-              # Backward compatibility: s390x tags are aliases of cpu for the linux/s390x platform.
-              if [[ -z "$digest" && "$tag_name" == "s390x" && "$arch" == "s390x" ]]; then
-                digest="$(awk -F '\t' -v t="cpu" -v a="$arch" -v i="$image_type" '$1 == t && $2 == a && $3 == i { print $4; exit }' ${DIGEST_GLOB})"
-              fi
-
               if [[ -z "$digest" ]]; then
                 echo "Missing digest for tag=${tag_name} arch=${arch} image_type=${image_type}" >&2
                 exit 1
@@ -397,11 +352,12 @@ jobs:
           }
 
           create_manifest_tags() {
-              local image_type="$1"
-              local tag_name="$2"
-              local suffix="$3"
+              local registry_prefix="$1"
+              local image_type="$2"
+              local tag_name="$3"
+              local suffix="$4"
 
-              local merged_tag="${PREFIX}${image_type}${suffix}"
+              local merged_tag="${registry_prefix}${image_type}${suffix}"
               local merged_versioned_tag="${merged_tag}-${SRC_TAG}"
 
               local refs=()
@@ -409,7 +365,7 @@ jobs:
               for arch in $ARCHES; do
                   local digest
                   digest="$(find_digest "$tag_name" "$arch" "$image_type")"
-                  refs+=("${IMAGE_REPO}@${digest}")
+                  refs+=("${digest}")
               done
 
               echo "Creating ${merged_tag} from ${refs[*]}"
@@ -427,16 +383,17 @@ jobs:
               fi
 
               if [[ "${{ matrix.config.full }}" == "true" ]]; then
-                  create_manifest_tags "full" "$tag" "$TYPE"
+                  create_manifest_tags "$ALIYUN_PREFIX" "full" "$tag" "$TYPE"
+                  create_manifest_tags "$DOCKERHUB_PREFIX" "full" "$tag" "$TYPE"
               fi
 
               if [[ "${{ matrix.config.light }}" == "true" ]]; then
-                  create_manifest_tags "light" "$tag" "$TYPE"
+                  create_manifest_tags "$ALIYUN_PREFIX" "light" "$tag" "$TYPE"
+                  create_manifest_tags "$DOCKERHUB_PREFIX" "light" "$tag" "$TYPE"
               fi
 
               if [[ "${{ matrix.config.server }}" == "true" ]]; then
-                  create_manifest_tags "server" "$tag" "$TYPE"
+                  create_manifest_tags "$ALIYUN_PREFIX" "server" "$tag" "$TYPE"
+                  create_manifest_tags "$DOCKERHUB_PREFIX" "server" "$tag" "$TYPE"
               fi
           done
-        env:
-          GITHUB_REPOSITORY_OWNER: '${{ github.repository_owner }}'
