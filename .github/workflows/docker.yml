@@ -140,9 +140,9 @@ jobs:
           set -euo pipefail
 
           ALIYUN_NS="${{ secrets.ALIYUN_NAME_SPACE }}"
-          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}:"
+          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}"
           DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
-          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp:"
+          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp"
           PLATFORM="${{ matrix.config.platforms }}"
           ARCH_SUFFIX="${PLATFORM#linux/}"
 
@@ -154,8 +154,8 @@ jobs:
               else
                   TYPE="-$tag"
               fi
-              ALIYUN_CACHE="${ALIYUN_PREFIX}buildcache${TYPE}-${ARCH_SUFFIX}"
-              DOCKERHUB_CACHE="${DOCKERHUB_PREFIX}buildcache${TYPE}-${ARCH_SUFFIX}"
+              ALIYUN_CACHE="${ALIYUN_PREFIX}:buildcache${TYPE}-${ARCH_SUFFIX}"
+              DOCKERHUB_CACHE="${DOCKERHUB_PREFIX}:buildcache${TYPE}-${ARCH_SUFFIX}"
           done
 
           SAFE_TAGS="$(echo "$tags" | tr ' ' '_')"
@@ -317,9 +317,9 @@ jobs:
           set -euo pipefail
 
           ALIYUN_NS="${{ secrets.ALIYUN_NAME_SPACE }}"
-          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}:"
+          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}"
           DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
-          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp:"
+          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp"
           SRC_TAG="${{ needs.create_tag.outputs.source_tag }}"
           TAGS="${{ matrix.config.tag }}"
           ARCHES="${{ matrix.config.arches }}"
@@ -353,11 +353,12 @@ jobs:
 
           create_manifest_tags() {
               local registry_prefix="$1"
-              local image_type="$2"
-              local tag_name="$3"
-              local suffix="$4"
+              local digest_prefix="$2"
+              local image_type="$3"
+              local tag_name="$4"
+              local suffix="$5"
 
-              local merged_tag="${registry_prefix}${image_type}${suffix}"
+              local merged_tag="${registry_prefix}:${image_type}${suffix}"
               local merged_versioned_tag="${merged_tag}-${SRC_TAG}"
 
               local refs=()
@@ -365,7 +366,7 @@ jobs:
               for arch in $ARCHES; do
                   local digest
                   digest="$(find_digest "$tag_name" "$arch" "$image_type")"
-                  refs+=("${digest}")
+                  refs+=("${digest_prefix}@${digest}")
               done
 
               echo "Creating ${merged_tag} from ${refs[*]}"
@@ -383,17 +384,17 @@ jobs:
               fi
 
               if [[ "${{ matrix.config.full }}" == "true" ]]; then
-                  create_manifest_tags "$ALIYUN_PREFIX" "full" "$tag" "$TYPE"
-                  create_manifest_tags "$DOCKERHUB_PREFIX" "full" "$tag" "$TYPE"
+                  create_manifest_tags "$ALIYUN_PREFIX" "$ALIYUN_PREFIX" "full" "$tag" "$TYPE"
+                  create_manifest_tags "$DOCKERHUB_PREFIX" "$ALIYUN_PREFIX" "full" "$tag" "$TYPE"
               fi
 
               if [[ "${{ matrix.config.light }}" == "true" ]]; then
-                  create_manifest_tags "$ALIYUN_PREFIX" "light" "$tag" "$TYPE"
-                  create_manifest_tags "$DOCKERHUB_PREFIX" "light" "$tag" "$TYPE"
+                  create_manifest_tags "$ALIYUN_PREFIX" "$ALIYUN_PREFIX" "light" "$tag" "$TYPE"
+                  create_manifest_tags "$DOCKERHUB_PREFIX" "$ALIYUN_PREFIX" "light" "$tag" "$TYPE"
               fi
 
               if [[ "${{ matrix.config.server }}" == "true" ]]; then
-                  create_manifest_tags "$ALIYUN_PREFIX" "server" "$tag" "$TYPE"
-                  create_manifest_tags "$DOCKERHUB_PREFIX" "server" "$tag" "$TYPE"
+                  create_manifest_tags "$ALIYUN_PREFIX" "$ALIYUN_PREFIX" "server" "$tag" "$TYPE"
+                  create_manifest_tags "$DOCKERHUB_PREFIX" "$ALIYUN_PREFIX" "server" "$tag" "$TYPE"
               fi
           done
