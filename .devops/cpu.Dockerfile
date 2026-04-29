@@ -47,7 +47,6 @@ RUN dnf makecache && \
     python3 \
     python3-pip \
     python3-wheel \
-    && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
     && pip install --upgrade setuptools \
     && pip install -r requirements.txt \
     && dnf clean all \
