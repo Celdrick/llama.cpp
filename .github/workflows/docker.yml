@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 # Fine-grant permission
-# https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#modifying-the-permissions-for-the-GH_TOKEN
+# https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#modifying-the-permissions-for-the-GITHUB_TOKEN
 permissions:
   packages: write
 
@@ -48,7 +48,7 @@ jobs:
 
       - name: Create and push git tag
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git tag ${{ steps.srctag.outputs.name }} || exit 0
           git push origin ${{ steps.srctag.outputs.name }} || exit 0
