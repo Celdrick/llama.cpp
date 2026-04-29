@@ -4,7 +4,8 @@ FROM ubuntu:$UBUNTU_VERSION AS build
 
 ARG TARGETARCH
 
-RUN apt-get update && \
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    apt-get update && \
     apt-get install -y gcc-14 g++-14 build-essential git cmake libssl-dev
 
 ENV CC=gcc-14 CXX=g++-14
@@ -35,7 +36,8 @@ RUN mkdir -p /app/full \
 ## Base image
 FROM ubuntu:$UBUNTU_VERSION AS base
 
-RUN apt-get update \
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    apt-get update \
     && apt-get install -y libgomp1 curl \
     && apt autoremove -y \
     && apt clean -y \
@@ -52,12 +54,14 @@ COPY --from=build /app/full /app
 
 WORKDIR /app
 
-RUN apt-get update \
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
+    apt-get update \
     && apt-get install -y \
     git \
     python3 \
     python3-pip \
     python3-wheel \
+    && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
     && pip install --break-system-packages --upgrade setuptools \
     && pip install --break-system-packages -r requirements.txt \
     && apt autoremove -y \
