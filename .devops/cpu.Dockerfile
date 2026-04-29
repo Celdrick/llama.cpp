@@ -11,15 +11,12 @@ WORKDIR /app
 COPY . .
 
 RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; \
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF; \
     else \
         echo "Unsupported architecture"; \
         exit 1; \
     fi && \
     cmake --build build -j $(nproc)
-
-RUN mkdir -p /app/lib && \
-    find build -name "*.so*" -exec cp -P {} /app/lib \;
 
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
@@ -36,8 +33,6 @@ RUN dnf makecache && \
     dnf install -y glibc curl \
     && dnf clean all \
     && rm -rf /tmp/* /var/tmp/*
-
-COPY --from=build /app/lib/ /app
 
 ### Full
 FROM base AS full
