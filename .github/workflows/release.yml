@@ -53,6 +53,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fix git ownership
+        run: git config --global --add safe.directory '*'
+
       - name: Build
         run: |
           cmake -S . -B build \
