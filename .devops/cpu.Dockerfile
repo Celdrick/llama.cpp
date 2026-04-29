@@ -1,14 +1,10 @@
-ARG UBUNTU_VERSION=24.04
-
-FROM ubuntu:$UBUNTU_VERSION AS build
+## Build image
+FROM openeuler/openeuler:22.03 AS build
 
 ARG TARGETARCH
 
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update && \
-    apt-get install -y gcc-14 g++-14 build-essential git cmake libssl-dev
-
-ENV CC=gcc-14 CXX=g++-14
+RUN dnf makecache && \
+    dnf install -y gcc gcc-c++ make git cmake openssl-devel
 
 WORKDIR /app
 
@@ -34,16 +30,12 @@ RUN mkdir -p /app/full \
     && cp .devops/tools.sh /app/full/tools.sh
 
 ## Base image
-FROM ubuntu:$UBUNTU_VERSION AS base
+FROM openeuler/openeuler:22.03 AS base
 
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update \
-    && apt-get install -y libgomp1 curl \
-    && apt autoremove -y \
-    && apt clean -y \
-    && rm -rf /tmp/* /var/tmp/* \
-    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
-    && find /var/cache -type f -delete
+RUN dnf makecache && \
+    dnf install -y glibc curl \
+    && dnf clean all \
+    && rm -rf /tmp/* /var/tmp/*
 
 COPY --from=build /app/lib/ /app
 
@@ -54,9 +46,8 @@ COPY --from=build /app/full /app
 
 WORKDIR /app
 
-RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://security.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list.d/ubuntu.sources && \
-    apt-get update \
-    && apt-get install -y \
+RUN dnf makecache && \
+    dnf install -y \
     git \
     python3 \
     python3-pip \
@@ -64,11 +55,8 @@ RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g; s|http://se
     && pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
     && pip install --break-system-packages --upgrade setuptools \
     && pip install --break-system-packages -r requirements.txt \
-    && apt autoremove -y \
-    && apt clean -y \
-    && rm -rf /tmp/* /var/tmp/* \
-    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
-    && find /var/cache -type f -delete
+    && dnf clean all \
+    && rm -rf /tmp/* /var/tmp/*
 
 ENTRYPOINT ["/app/tools.sh"]
 
