@@ -4,7 +4,7 @@
 # documentation.
 
 # GitHub recommends pinning actions to a commit SHA.
-# To get a newer version, you will need to update the SHA.
+# To get a newer version of the action, you will need to update the SHA.
 # You can also reference a tag or branch, but the action may change without warning.
 
 name: Publish Docker image
@@ -12,7 +12,7 @@ name: Publish Docker image
 on:
   workflow_dispatch: # allows manual triggering
   schedule:
-    # Rebuild daily rather than on every push because it is expensive
+    # Rebuild daily
     - cron: '12 4 * * *'
 
 concurrency:
@@ -24,98 +24,46 @@ concurrency:
 permissions:
   packages: write
 
+env:
+  ALIYUN_PREFIX: ${{ secrets.ALIYUN_REGISTRY }}/${{ secrets.ALIYUN_NAME_SPACE }}/llama.cpp
+  DOCKERHUB_PREFIX: ${{ secrets.DOCKERHUB_USERNAME }}/llama.cpp
+
 jobs:
-  create_tag:
-    name: Create and push git tag
-    runs-on: ubuntu-slim
-    permissions:
-      contents: write
-    outputs:
-      source_tag: ${{ steps.srctag.outputs.name }}
-
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Determine source tag name
-        id: srctag
-        uses: ./.github/actions/get-tag-name
-        env:
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-
-      - name: Create and push git tag
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git tag ${{ steps.srctag.outputs.name }} || exit 0
-          git push origin ${{ steps.srctag.outputs.name }} || exit 0
-
-  prepare_matrices:
-    name: Prepare Docker matrices
+  build_and_push:
+    name: Build and push Docker images
     runs-on: ubuntu-24.04
-    outputs:
-      build_matrix: ${{ steps.matrices.outputs.build_matrix }}
-      merge_matrix: ${{ steps.matrices.outputs.merge_matrix }}
 
-    steps:
-      - name: Generate build and merge matrices
-        id: matrices
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          cat > build-matrix.json <<'JSON'
-          [
-            { "tag": "cpu", "dockerfile": ".devops/cpu.Dockerfile", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": false, "runs_on": "ubuntu-24.04" },
-            { "tag": "cuda13", "dockerfile": ".devops/cuda.Dockerfile", "cuda_version": "13.1.1", "platforms": "linux/amd64", "full": true, "light": true, "server": true, "free_disk_space": true, "runs_on": "ubuntu-24.04" }
-          ]
-          JSON
-
-          BUILD_MATRIX="$(jq -c . build-matrix.json)"
-          MERGE_MATRIX="$(jq -c '
-            reduce .[] as $entry ({}; .[$entry.tag] |= (
-              . // {
-                tag: $entry.tag,
-                arches: [],
-                full: false,
-                light: false,
-                server: false
-              }
-              | .full = (.full or ($entry.full // false))
-              | .light = (.light or ($entry.light // false))
-              | .server = (.server or ($entry.server // false))
-              | .arches += [($entry.platforms | sub("^linux/"; ""))]
-            ))
-            | [.[] | .arches = (.arches | unique | sort | join(" "))]
-          ' build-matrix.json)"
-
-          echo "build_matrix=$BUILD_MATRIX" >> "$GITHUB_OUTPUT"
-          echo "merge_matrix=$MERGE_MATRIX" >> "$GITHUB_OUTPUT"
-
-  push_to_registry:
-    name: Push Docker image to Docker Registry
-    needs: [prepare_matrices, create_tag]
-
-    runs-on: ${{ matrix.config.runs_on }}
     strategy:
       fail-fast: false
       matrix:
-        config: ${{ fromJSON(needs.prepare_matrices.outputs.build_matrix) }}
+        include:
+          - tag: 'cpu'
+            dockerfile: '.devops/cpu.Dockerfile'
+            target: 'full'
+          - tag: 'cpu'
+            dockerfile: '.devops/cpu.Dockerfile'
+            target: 'light'
+          - tag: 'cpu'
+            dockerfile: '.devops/cpu.Dockerfile'
+            target: 'server'
+          - tag: 'cuda13'
+            dockerfile: '.devops/cuda.Dockerfile'
+            target: 'full'
+            cuda_version: '13.1.1'
+          - tag: 'cuda13'
+            dockerfile: '.devops/cuda.Dockerfile'
+            target: 'light'
+            cuda_version: '13.1.1'
+          - tag: 'cuda13'
+            dockerfile: '.devops/cuda.Dockerfile'
+            target: 'server'
+            cuda_version: '13.1.1'
+
     steps:
       - name: Check out the repo
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ needs.create_tag.outputs.source_tag }}
-
-      - name: Set up QEMU
-        if: ${{ contains(matrix.config.platforms, 'linux/amd64') }}
-        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
-        with:
-          image: tonistiigi/binfmt:qemu-v10.2.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
@@ -133,268 +81,43 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Determine image metadata
-        id: meta
-        shell: bash
+      - name: Determine tag suffix
+        id: suffix
         run: |
-          set -euo pipefail
-
-          ALIYUN_NS="${{ secrets.ALIYUN_NAME_SPACE }}"
-          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}/llama.cpp"
-          DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
-          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp"
-          PLATFORM="${{ matrix.config.platforms }}"
-          ARCH_SUFFIX="${PLATFORM#linux/}"
-
-          # list all tags possible
-          tags="${{ matrix.config.tag }}"
-          for tag in $tags; do
-              if [[ "$tag" == "cpu" ]]; then
-                  TYPE=""
-              else
-                  TYPE="-$tag"
-              fi
-              ALIYUN_CACHE="${ALIYUN_PREFIX}:buildcache${TYPE}-${ARCH_SUFFIX}"
-              DOCKERHUB_CACHE="${DOCKERHUB_PREFIX}:buildcache${TYPE}-${ARCH_SUFFIX}"
-          done
-
-          SAFE_TAGS="$(echo "$tags" | tr ' ' '_')"
-
-          echo "aliyun_prefix=$ALIYUN_PREFIX" >> $GITHUB_OUTPUT
-          echo "dockerhub_prefix=$DOCKERHUB_PREFIX" >> $GITHUB_OUTPUT
-          echo "arch_suffix=$ARCH_SUFFIX" >> $GITHUB_OUTPUT
-          echo "aliyun_cache_output_tag=$ALIYUN_CACHE" >> $GITHUB_OUTPUT
-          echo "dockerhub_cache_output_tag=$DOCKERHUB_CACHE" >> $GITHUB_OUTPUT
-          echo "digest_artifact_suffix=${SAFE_TAGS}-${ARCH_SUFFIX}" >> $GITHUB_OUTPUT
-
-      - name: Free Disk Space (Ubuntu)
-        if: ${{ matrix.config.free_disk_space == true }}
-        uses: ggml-org/free-disk-space@v1.3.1
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
-
-      - name: Build and push Full Docker image by digest
-        id: build_full
-        if: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.config.full == true }}
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
-        with:
-          context: .
-          platforms: ${{ matrix.config.platforms }}
-          outputs: type=image,name=${{ steps.meta.outputs.aliyun_prefix }},push-by-digest=true,name-canonical=true,push=true
-          file: ${{ matrix.config.dockerfile }}
-          target: full
-          provenance: false
-          build-args: |
-            ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
-            ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
-          cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
-          cache-to: type=inline
-
-      - name: Build and push Light Docker image by digest
-        id: build_light
-        if: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.config.light == true }}
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
-        with:
-          context: .
-          platforms: ${{ matrix.config.platforms }}
-          outputs: type=image,name=${{ steps.meta.outputs.aliyun_prefix }},push-by-digest=true,name-canonical=true,push=true
-          file: ${{ matrix.config.dockerfile }}
-          target: light
-          provenance: false
-          build-args: |
-            ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
-            ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
-          cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
-          cache-to: type=inline
-
-      - name: Build and push Server Docker image by digest
-        id: build_server
-        if: ${{ (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && matrix.config.server == true }}
-        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
-        with:
-          context: .
-          platforms: ${{ matrix.config.platforms }}
-          outputs: type=image,name=${{ steps.meta.outputs.aliyun_prefix }},push-by-digest=true,name-canonical=true,push=true
-          file: ${{ matrix.config.dockerfile }}
-          target: server
-          provenance: false
-          build-args: |
-            ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
-            ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
-          cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
-          cache-to: type=inline
-
-      - name: Export digest metadata
-        shell: bash
-        run: |
-            set -euo pipefail
-
-            TAGS="${{ matrix.config.tag }}"
-            ARCH_SUFFIX="${{ steps.meta.outputs.arch_suffix }}"
-            DIGEST_FILE="/tmp/digests/${{ steps.meta.outputs.digest_artifact_suffix }}.tsv"
-            mkdir -p /tmp/digests
-
-            add_digest_rows() {
-                local image_type="$1"
-                local digest="$2"
-
-                if [[ -z "$digest" ]]; then
-                  echo "Missing digest for image_type=${image_type}" >&2
-                  exit 1
-                fi
-
-                for tag in $TAGS; do
-                    printf '%s\t%s\t%s\t%s\n' "$tag" "$ARCH_SUFFIX" "$image_type" "$digest" >> "$DIGEST_FILE"
-                done
-            }
-
-            if [[ "${{ matrix.config.full }}" == "true" ]]; then
-                add_digest_rows "full" "${{ steps.build_full.outputs.digest }}"
-            fi
-
-            if [[ "${{ matrix.config.light }}" == "true" ]]; then
-                add_digest_rows "light" "${{ steps.build_light.outputs.digest }}"
-            fi
-
-            if [[ "${{ matrix.config.server }}" == "true" ]]; then
-                add_digest_rows "server" "${{ steps.build_server.outputs.digest }}"
-            fi
-
-      - name: Upload digest metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: digests-${{ steps.meta.outputs.digest_artifact_suffix }}
-          path: /tmp/digests/${{ steps.meta.outputs.digest_artifact_suffix }}.tsv
-          if-no-files-found: error
-
-  merge_arch_tags:
-    name: Create shared tags from digests
-    needs: [prepare_matrices, push_to_registry, create_tag]
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        config: ${{ fromJSON(needs.prepare_matrices.outputs.merge_matrix) }}
-
-    steps:
-      - name: Check out the repo
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Download digest metadata
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: digests-*
-          path: /tmp/digests
-          merge-multiple: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
-
-      - name: Log in to Aliyun Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
-        with:
-          registry: ${{ secrets.ALIYUN_REGISTRY }}
-          username: ${{ secrets.ALIYUN_REGISTRY_USER }}
-          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_PASSWORD }}
-
-      - name: Create tags from digests
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ALIYUN_NS="${{ secrets.ALIYUN_NAME_SPACE }}"
-          ALIYUN_PREFIX="${{ secrets.ALIYUN_REGISTRY }}/${ALIYUN_NS}/llama.cpp"
-          DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
-          DOCKERHUB_PREFIX="${DOCKERHUB_USER}/llama.cpp"
-          SRC_TAG="${{ needs.create_tag.outputs.source_tag }}"
-          TAGS="${{ matrix.config.tag }}"
-          ARCHES="${{ matrix.config.arches }}"
-          DIGEST_GLOB="/tmp/digests/*.tsv"
-
-          if ! ls ${DIGEST_GLOB} >/dev/null 2>&1; then
-              echo "No digest metadata found in /tmp/digests" >&2
-              exit 1
+          if [[ "${{ matrix.tag }}" == "cpu" ]]; then
+            echo "suffix=" >> $GITHUB_OUTPUT
+          else
+            echo "suffix=-${{ matrix.tag }}" >> $GITHUB_OUTPUT
           fi
 
-          if [[ -z "$SRC_TAG" ]]; then
-              echo "Missing source tag from create_tag" >&2
-              exit 1
-          fi
+      - name: Build and push to Aliyun Registry
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.ALIYUN_PREFIX }}:${{ matrix.target }}${{ steps.suffix.outputs.suffix }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          provenance: false
+          build-args: |
+            ${{ matrix.cuda_version && format('CUDA_VERSION={0}', matrix.cuda_version) || '' }}
+          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-${{ matrix.tag }}-amd64
+          cache-to: type=inline
 
-          find_digest() {
-              local tag_name="$1"
-              local arch="$2"
-              local image_type="$3"
-              local digest
-
-              digest="$(awk -F '\t' -v t="$tag_name" -v a="$arch" -v i="$image_type" '$1 == t && $2 == a && $3 == i { print $4; exit }' ${DIGEST_GLOB})"
-
-              if [[ -z "$digest" ]]; then
-                echo "Missing digest for tag=${tag_name} arch=${arch} image_type=${image_type}" >&2
-                exit 1
-              fi
-
-              echo "$digest"
-          }
-
-          create_manifest_tags() {
-              local registry_prefix="$1"
-              local digest_prefix="$2"
-              local image_type="$3"
-              local tag_name="$4"
-              local suffix="$5"
-
-              local merged_tag="${registry_prefix}:${image_type}${suffix}"
-              local merged_versioned_tag="${merged_tag}-${SRC_TAG}"
-
-              local refs=()
-
-              for arch in $ARCHES; do
-                  local digest
-                  digest="$(find_digest "$tag_name" "$arch" "$image_type")"
-                  refs+=("${digest_prefix}@${digest}")
-              done
-
-              echo "Creating ${merged_tag} from ${refs[*]}"
-              docker buildx imagetools create --tag "${merged_tag}" "${refs[@]}"
-
-              echo "Creating ${merged_versioned_tag} from ${refs[*]}"
-              docker buildx imagetools create --tag "${merged_versioned_tag}" "${refs[@]}"
-          }
-
-          for tag in $TAGS; do
-              if [[ "$tag" == "cpu" ]]; then
-                  TYPE=""
-              else
-                  TYPE="-$tag"
-              fi
-
-              if [[ "${{ matrix.config.full }}" == "true" ]]; then
-                  create_manifest_tags "$ALIYUN_PREFIX" "$ALIYUN_PREFIX" "full" "$tag" "$TYPE"
-                  create_manifest_tags "$DOCKERHUB_PREFIX" "$ALIYUN_PREFIX" "full" "$tag" "$TYPE"
-              fi
-
-              if [[ "${{ matrix.config.light }}" == "true" ]]; then
-                  create_manifest_tags "$ALIYUN_PREFIX" "$ALIYUN_PREFIX" "light" "$tag" "$TYPE"
-                  create_manifest_tags "$DOCKERHUB_PREFIX" "$ALIYUN_PREFIX" "light" "$tag" "$TYPE"
-              fi
-
-              if [[ "${{ matrix.config.server }}" == "true" ]]; then
-                  create_manifest_tags "$ALIYUN_PREFIX" "$ALIYUN_PREFIX" "server" "$tag" "$TYPE"
-                  create_manifest_tags "$DOCKERHUB_PREFIX" "$ALIYUN_PREFIX" "server" "$tag" "$TYPE"
-              fi
-          done
+      - name: Build and push to Docker Hub
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_PREFIX }}:${{ matrix.target }}${{ steps.suffix.outputs.suffix }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          provenance: false
+          build-args: |
+            ${{ matrix.cuda_version && format('CUDA_VERSION={0}', matrix.cuda_version) || '' }}
+          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-${{ matrix.tag }}-amd64
+          cache-to: type=inline
