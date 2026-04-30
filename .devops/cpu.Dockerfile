@@ -1,22 +1,28 @@
-## Build image
-FROM openeuler/openeuler:22.03 AS build
+ARG UBUNTU_VERSION=24.04
+
+FROM ubuntu:$UBUNTU_VERSION AS build
 
 ARG TARGETARCH
 
-RUN dnf makecache && \
-    dnf install -y gcc gcc-c++ make git cmake openssl-devel
+RUN apt-get update && \
+    apt-get install -y gcc-14 g++-14 build-essential git cmake libssl-dev
+
+ENV CC=gcc-14 CXX=g++-14
 
 WORKDIR /app
 
 COPY . .
 
 RUN if [ "$TARGETARCH" = "amd64" ] || [ "$TARGETARCH" = "arm64" ]; then \
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF; \
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DGGML_BMI2=ON -DGGML_SSE42=ON; \
     else \
         echo "Unsupported architecture"; \
         exit 1; \
     fi && \
     cmake --build build -j $(nproc)
+
+RUN mkdir -p /app/lib && \
+    find build -name "*.so*" -exec cp -P {} /app/lib \;
 
 RUN mkdir -p /app/full \
     && cp build/bin/* /app/full \
@@ -27,12 +33,17 @@ RUN mkdir -p /app/full \
     && cp .devops/tools.sh /app/full/tools.sh
 
 ## Base image
-FROM openeuler/openeuler:22.03 AS base
+FROM ubuntu:$UBUNTU_VERSION AS base
 
-RUN dnf makecache && \
-    dnf install -y glibc curl \
-    && dnf clean all \
-    && rm -rf /tmp/* /var/tmp/*
+RUN apt-get update \
+    && apt-get install -y libgomp1 curl \
+    && apt autoremove -y \
+    && apt clean -y \
+    && rm -rf /tmp/* /var/tmp/* \
+    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
+    && find /var/cache -type f -delete
+
+COPY --from=build /app/lib/ /app
 
 ### Full
 FROM base AS full
@@ -41,16 +52,19 @@ COPY --from=build /app/full /app
 
 WORKDIR /app
 
-RUN dnf makecache && \
-    dnf install -y \
+RUN apt-get update \
+    && apt-get install -y \
     git \
     python3 \
     python3-pip \
     python3-wheel \
-    && pip install --upgrade setuptools \
-    && pip install -r requirements.txt \
-    && dnf clean all \
-    && rm -rf /tmp/* /var/tmp/*
+    && pip install --break-system-packages --upgrade setuptools \
+    && pip install --break-system-packages -r requirements.txt \
+    && apt autoremove -y \
+    && apt clean -y \
+    && rm -rf /tmp/* /var/tmp/* \
+    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
+    && find /var/cache -type f -delete
 
 ENTRYPOINT ["/app/tools.sh"]
 
