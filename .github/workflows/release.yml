@@ -64,7 +64,9 @@ jobs:
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_TOOLS=ON \
-            -DLLAMA_BUILD_SERVER=ON
+            -DLLAMA_BUILD_SERVER=ON \
+            -DGGML_BMI2=ON \
+            -DGGML_SSE42=ON
           cmake --build build -j $(nproc)
 
       - name: Determine tag name
