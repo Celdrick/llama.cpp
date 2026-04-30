@@ -36,28 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - tag: 'cpu'
-            dockerfile: '.devops/cpu.Dockerfile'
-            target: 'full'
-          - tag: 'cpu'
-            dockerfile: '.devops/cpu.Dockerfile'
-            target: 'light'
-          - tag: 'cpu'
-            dockerfile: '.devops/cpu.Dockerfile'
-            target: 'server'
-          - tag: 'cuda13'
-            dockerfile: '.devops/cuda.Dockerfile'
-            target: 'full'
-            cuda_version: '13.1.1'
-          - tag: 'cuda13'
-            dockerfile: '.devops/cuda.Dockerfile'
-            target: 'light'
-            cuda_version: '13.1.1'
-          - tag: 'cuda13'
-            dockerfile: '.devops/cuda.Dockerfile'
-            target: 'server'
-            cuda_version: '13.1.1'
+        target: ['full', 'light', 'server']
 
     steps:
       - name: Check out the repo
@@ -81,15 +60,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Determine tag suffix
-        id: suffix
-        run: |
-          if [[ "${{ matrix.tag }}" == "cpu" ]]; then
-            echo "suffix=" >> $GITHUB_OUTPUT
-          else
-            echo "suffix=-${{ matrix.tag }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Build and push to Aliyun Registry
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
         with:
@@ -97,13 +67,11 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.ALIYUN_PREFIX }}:${{ matrix.target }}${{ steps.suffix.outputs.suffix }}
-          file: ${{ matrix.dockerfile }}
+            ${{ env.ALIYUN_PREFIX }}:${{ matrix.target }}
+          file: .devops/cpu.Dockerfile
           target: ${{ matrix.target }}
           provenance: false
-          build-args: |
-            ${{ matrix.cuda_version && format('CUDA_VERSION={0}', matrix.cuda_version) || '' }}
-          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-${{ matrix.tag }}-amd64
+          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64
           cache-to: type=inline
 
       - name: Build and push to Docker Hub
@@ -113,11 +81,9 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.DOCKERHUB_PREFIX }}:${{ matrix.target }}${{ steps.suffix.outputs.suffix }}
-          file: ${{ matrix.dockerfile }}
+            ${{ env.DOCKERHUB_PREFIX }}:${{ matrix.target }}
+          file: .devops/cpu.Dockerfile
           target: ${{ matrix.target }}
           provenance: false
-          build-args: |
-            ${{ matrix.cuda_version && format('CUDA_VERSION={0}', matrix.cuda_version) || '' }}
-          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-${{ matrix.tag }}-amd64
+          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64
           cache-to: type=inline
