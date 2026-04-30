@@ -15,6 +15,7 @@
 #   - llama.cpp source code in the build context
 #   - Huawei Ascend NPU (910b) hardware available
 
+# Use the same builder image for build and runtime stages
 FROM llama.cpp:builder-cann AS build
 
 WORKDIR /app
@@ -35,25 +36,13 @@ RUN source /usr/local/Ascend/ascend-toolkit/set_env.sh --force && \
         -DLLAMA_BUILD_SERVER=ON && \
     cmake --build build --config Release -j $(nproc)
 
-# Create runtime image based on CANN base
-FROM ascendai/cann:8.5.0-910b-openeuler24.03-py3.11 AS runtime
-
-# Install runtime dependencies
-RUN yum install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
-    libgomp \
-    curl \
-    && yum clean all \
-    && rm -rf /var/cache/yum
-
-# Set CANN environment variables for runtime
-ENV ASCEND_TOOLKIT_HOME=/usr/local/Ascend/ascend-toolkit/latest
-ENV LD_LIBRARY_PATH=/app:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/aarch64-linux/devlib:${LD_LIBRARY_PATH}
-ENV PATH=${ASCEND_TOOLKIT_HOME}/bin:${PATH}
-ENV ASCEND_OPP_PATH=${ASCEND_TOOLKIT_HOME}/opp
+# Runtime stage - reuse the same builder-cann image as base
+# This avoids needing to pull CANN base image in offline environment
+FROM llama.cpp:builder-cann AS runtime
 
 WORKDIR /app
 
-# Copy built binaries
+# Copy built binaries from build stage
 COPY --from=build /app/build/bin/llama-cli /app/
 COPY --from=build /app/build/bin/llama-server /app/
 

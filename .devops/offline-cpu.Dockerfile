@@ -13,6 +13,7 @@
 #   - llama.cpp:builder image must be loaded
 #   - llama.cpp source code in the build context
 
+# Use the same builder image for build and runtime stages
 FROM llama.cpp:builder AS build
 
 WORKDIR /app
@@ -33,21 +34,13 @@ RUN cmake -B build \
 
 RUN cmake --build build --config Release -j $(nproc)
 
-# Create runtime image
-FROM ubuntu:22.04 AS runtime
-
-# Install runtime dependencies
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    libgomp1 \
-    ca-certificates \
-    curl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+# Runtime stage - reuse the same builder image as base
+# This avoids needing to pull ubuntu image in offline environment
+FROM llama.cpp:builder AS runtime
 
 WORKDIR /app
 
-# Copy built binaries
+# Copy built binaries from build stage
 COPY --from=build /app/build/bin/llama-cli /app/
 COPY --from=build /app/build/bin/llama-server /app/
 
