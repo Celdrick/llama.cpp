@@ -28,63 +28,81 @@ env:
   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
 
 jobs:
-  openeuler-cpu:
+  ubuntu-cpu:
     strategy:
       matrix:
         include:
           - build: 'x64'
-            arch: 'amd64'
+            os: ubuntu-22.04
+            defines: "-DGGML_BMI2=ON -DGGML_SSE42=ON"
+          - build: 'arm64'
+            os: ubuntu-24.04-arm
+            defines: ""
+          - build: 's390x'
+            os: ubuntu-24.04-s390x
+            defines: ""
 
-    runs-on: ubuntu-latest
-
-    container:
-      image: openeuler/openeuler:22.03-lts-sp4
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Install build dependencies
-        run: |
-          dnf install -y --setopt=install_weak_deps=False --setopt=tsflags=nodocs \
-            gcc gcc-c++ make git cmake openssl-devel
-          dnf clean all && rm -rf /var/cache/yum
-
       - name: Clone
         id: checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Fix git ownership
-        run: git config --global --add safe.directory '*'
+      - name: ccache
+        if: ${{ matrix.build != 's390x' }}
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: ubuntu-cpu-${{ matrix.build }}
+          evict-old-files: 1d
+
+      - name: Dependencies
+        id: depends
+        run: |
+          sudo apt-get update
+          sudo apt-get install build-essential libssl-dev
+
+      - name: Toolchain workaround (GCC 14)
+        if: ${{ contains(matrix.os, 'ubuntu-24.04') }}
+        run: |
+          sudo apt-get install -y gcc-14 g++-14
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
 
       - name: Build
+        id: cmake_build
         run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
+          cmake -B build \
+            -DCMAKE_INSTALL_RPATH='$ORIGIN' \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+            -DGGML_BACKEND_DL=ON \
             -DGGML_NATIVE=OFF \
+            -DGGML_CPU_ALL_VARIANTS=ON \
+            -DLLAMA_FATAL_WARNINGS=ON \
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_TOOLS=ON \
             -DLLAMA_BUILD_SERVER=ON \
-            -DGGML_BMI2=ON \
-            -DGGML_SSE42=ON
-          cmake --build build -j $(nproc)
+            ${{ matrix.defines }}
+          cmake --build build --config Release -j $(nproc)
 
       - name: Determine tag name
         id: tag
         uses: ./.github/actions/get-tag-name
 
       - name: Pack artifacts
+        id: pack_artifacts
         run: |
           cp LICENSE ./build/bin/
-          tar -czvf llama-${{ steps.tag.outputs.name }}-bin-openeuler-cpu-${{ matrix.build }}.tar.gz \
-            --transform "s,./,llama-${{ steps.tag.outputs.name }}/," \
-            -C ./build/bin .
+          tar -czvf llama-${{ steps.tag.outputs.name }}-bin-ubuntu-${{ matrix.build }}.tar.gz --transform "s,./,llama-${{ steps.tag.outputs.name }}/," -C ./build/bin .
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
-          path: llama-${{ steps.tag.outputs.name }}-bin-openeuler-cpu-${{ matrix.build }}.tar.gz
-          name: llama-bin-openeuler-cpu-${{ matrix.build }}.tar.gz
+          path: llama-${{ steps.tag.outputs.name }}-bin-ubuntu-${{ matrix.build }}.tar.gz
+          name: llama-bin-ubuntu-${{ matrix.build }}.tar.gz
 
   release:
     if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
@@ -95,7 +113,7 @@ jobs:
     runs-on: ubuntu-slim
 
     needs:
-      - openeuler-cpu
+      - ubuntu-cpu
 
     steps:
       - name: Clone
@@ -133,8 +151,10 @@ jobs:
 
             </details>
 
-            **openEuler CPU:**
-            - [openEuler x64 (CPU)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-openeuler-cpu-x64.tar.gz)
+            **Ubuntu CPU:**
+            - [Ubuntu x64 (CPU, BMI2+SSE42 enabled)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz)
+            - [Ubuntu arm64 (CPU)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-arm64.tar.gz)
+            - [Ubuntu s390x (CPU)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-s390x.tar.gz)
 
       - name: Upload release
         uses: actions/github-script@v8
