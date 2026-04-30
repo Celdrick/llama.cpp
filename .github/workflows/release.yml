@@ -38,9 +38,6 @@ jobs:
           - build: 'arm64'
             os: ubuntu-24.04-arm
             defines: ""
-          - build: 's390x'
-            os: ubuntu-24.04-s390x
-            defines: ""
 
     runs-on: ${{ matrix.os }}
 
@@ -154,7 +151,6 @@ jobs:
             **Ubuntu CPU:**
             - [Ubuntu x64 (CPU, BMI2+SSE42 enabled)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-x64.tar.gz)
             - [Ubuntu arm64 (CPU)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-arm64.tar.gz)
-            - [Ubuntu s390x (CPU)](https://github.com/Celdrick/llama.cpp/releases/download/${{ steps.tag.outputs.name }}/llama-${{ steps.tag.outputs.name }}-bin-ubuntu-s390x.tar.gz)
 
       - name: Upload release
         uses: actions/github-script@v8
