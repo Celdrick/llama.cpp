@@ -194,7 +194,7 @@ jobs:
             ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
             ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }},mode=max
+          cache-to: type=inline
 
       - name: Build and push Light Docker image by digest
         id: build_light
@@ -211,7 +211,7 @@ jobs:
             ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
             ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }},mode=max
+          cache-to: type=inline
 
       - name: Build and push Server Docker image by digest
         id: build_server
@@ -228,7 +228,7 @@ jobs:
             ${{ matrix.config.ubuntu_version && format('UBUNTU_VERSION={0}', matrix.config.ubuntu_version) || '' }}
             ${{ matrix.config.cuda_version && format('CUDA_VERSION={0}', matrix.config.cuda_version) || '' }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }}
-          cache-to: type=registry,ref=${{ steps.meta.outputs.aliyun_cache_output_tag }},mode=max
+          cache-to: type=inline
 
       - name: Export digest metadata
         shell: bash
