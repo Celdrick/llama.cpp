@@ -16,6 +16,7 @@
 #   - Huawei Ascend NPU (910b) hardware available
 
 # Use the same builder image for build and runtime stages
+# Note: builder-cann image already contains all build dependencies
 FROM llama.cpp:builder-cann AS build
 
 WORKDIR /app
@@ -36,15 +37,36 @@ RUN source /usr/local/Ascend/ascend-toolkit/set_env.sh --force && \
         -DLLAMA_BUILD_SERVER=ON && \
     cmake --build build --config Release -j $(nproc)
 
+# Collect .so files for runtime
+RUN mkdir -p /app/lib && \
+    find build -name "*.so*" -exec cp -P {} /app/lib \;
+
 # Runtime stage - reuse the same builder-cann image as base
 # This avoids needing to pull CANN base image in offline environment
 FROM llama.cpp:builder-cann AS runtime
 
 WORKDIR /app
 
+# Copy .so files from build stage
+COPY --from=build /app/lib/ /app/
+
 # Copy built binaries from build stage
 COPY --from=build /app/build/bin/llama-cli /app/
 COPY --from=build /app/build/bin/llama-server /app/
+
+# Set locale
+ENV LC_ALL=C.utf8
+
+# Set CANN environment variables (required for runtime)
+ENV ASCEND_TOOLKIT_HOME=/usr/local/Ascend/ascend-toolkit/latest
+ENV LIBRARY_PATH=${ASCEND_TOOLKIT_HOME}/lib64:${LIBRARY_PATH}
+ENV LD_LIBRARY_PATH=/app:${ASCEND_TOOLKIT_HOME}/lib64:${ASCEND_TOOLKIT_HOME}/lib64/plugin/opskernel:${ASCEND_TOOLKIT_HOME}/lib64/plugin/nnengine:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/op_tiling:${ASCEND_TOOLKIT_HOME}/runtime/lib64/stub:${LD_LIBRARY_PATH}
+ENV PYTHONPATH=${ASCEND_TOOLKIT_HOME}/python/site-packages:${ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe:${PYTHONPATH}
+ENV PATH=${ASCEND_TOOLKIT_HOME}/bin:${ASCEND_TOOLKIT_HOME}/compiler/ccec_compiler/bin:${PATH}
+ENV ASCEND_AICPU_PATH=${ASCEND_TOOLKIT_HOME}
+ENV ASCEND_OPP_PATH=${ASCEND_TOOLKIT_HOME}/opp
+ENV TOOLCHAIN_HOME=${ASCEND_TOOLKIT_HOME}/toolkit
+ENV ASCEND_HOME_PATH=${ASCEND_TOOLKIT_HOME}
 
 # Create directory for models
 RUN mkdir -p /models
