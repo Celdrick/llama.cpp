@@ -72,7 +72,7 @@ jobs:
           target: ${{ matrix.target }}
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64
-          cache-to: type=inline
+          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64,mode=max
 
       - name: Build and push to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -86,7 +86,6 @@ jobs:
           target: ${{ matrix.target }}
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64
-          cache-to: type=inline
 
   build_builder:
     name: Build and push offline builder image (x64 CPU)
@@ -125,7 +124,7 @@ jobs:
           file: .devops/builder.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64
-          cache-to: type=inline
+          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64,mode=max
 
       - name: Build and push builder image to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -138,7 +137,6 @@ jobs:
           file: .devops/builder.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64
-          cache-to: type=inline
 
   build_builder_cann:
     name: Build and push offline builder image (ARM64 CANN)
@@ -180,7 +178,7 @@ jobs:
           file: .devops/builder-cann.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64
-          cache-to: type=inline
+          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64,mode=max
 
       - name: Build and push CANN builder image to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -193,7 +191,6 @@ jobs:
           file: .devops/builder-cann.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64
-          cache-to: type=inline
 
   build_builder_cuda:
     name: Build and push offline builder image (x64 CUDA)
@@ -232,7 +229,7 @@ jobs:
           file: .devops/builder-cuda.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
-          cache-to: type=inline
+          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64,mode=max
 
       - name: Build and push CUDA builder image to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -245,4 +242,3 @@ jobs:
           file: .devops/builder-cuda.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
-          cache-to: type=inline
