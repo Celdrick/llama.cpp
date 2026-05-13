@@ -194,3 +194,55 @@ jobs:
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64
           cache-to: type=inline
+
+  build_builder_cuda:
+    name: Build and push offline builder image (x64 CUDA)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Log in to Aliyun Registry
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          registry: ${{ secrets.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USER }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push CUDA builder image to Aliyun Registry
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.ALIYUN_PREFIX }}:builder-cuda
+          file: .devops/builder-cuda.Dockerfile
+          provenance: false
+          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
+          cache-to: type=inline
+
+      - name: Build and push CUDA builder image to Docker Hub
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.DOCKERHUB_PREFIX }}:builder-cuda
+          file: .devops/builder-cuda.Dockerfile
+          provenance: false
+          cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
+          cache-to: type=inline
