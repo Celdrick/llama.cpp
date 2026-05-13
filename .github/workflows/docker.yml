@@ -72,7 +72,7 @@ jobs:
           target: ${{ matrix.target }}
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64
-          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64,mode=max
+          cache-to: type=inline
 
       - name: Build and push to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -82,6 +82,7 @@ jobs:
           push: true
           tags: |
             ${{ env.DOCKERHUB_PREFIX }}:${{ matrix.target }}
+            ${{ env.ALIYUN_PREFIX }}:buildcache-cpu-amd64
           file: .devops/cpu.Dockerfile
           target: ${{ matrix.target }}
           provenance: false
@@ -124,7 +125,7 @@ jobs:
           file: .devops/builder.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64
-          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64,mode=max
+          cache-to: type=inline
 
       - name: Build and push builder image to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -134,6 +135,7 @@ jobs:
           push: true
           tags: |
             ${{ env.DOCKERHUB_PREFIX }}:builder
+            ${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64
           file: .devops/builder.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-amd64
@@ -178,7 +180,7 @@ jobs:
           file: .devops/builder-cann.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64
-          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64,mode=max
+          cache-to: type=inline
 
       - name: Build and push CANN builder image to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -188,6 +190,7 @@ jobs:
           push: true
           tags: |
             ${{ env.DOCKERHUB_PREFIX }}:builder-cann
+            ${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64
           file: .devops/builder-cann.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cann-arm64
@@ -229,7 +232,7 @@ jobs:
           file: .devops/builder-cuda.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
-          cache-to: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64,mode=max
+          cache-to: type=inline
 
       - name: Build and push CUDA builder image to Docker Hub
         uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7
@@ -239,6 +242,7 @@ jobs:
           push: true
           tags: |
             ${{ env.DOCKERHUB_PREFIX }}:builder-cuda
+            ${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
           file: .devops/builder-cuda.Dockerfile
           provenance: false
           cache-from: type=registry,ref=${{ env.ALIYUN_PREFIX }}:buildcache-builder-cuda-amd64
